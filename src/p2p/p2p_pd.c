@@ -19,7 +19,7 @@
  * Number of retries to attempt for provision discovery requests
  * in case the peer is not listening.
  */
-#define MAX_PROV_DISC_REQ_RETRIES 10
+#define MAX_PROV_DISC_REQ_RETRIES 120
 
 
 static void p2p_build_wps_ie_config_methods(struct wpabuf *buf,
@@ -280,11 +280,6 @@ void p2p_process_prov_disc_resp(struct p2p_data *p2p, const u8 *sa,
 		return;
 	}
 
-	if (p2p->pending_action_state == P2P_PENDING_PD) {
-		os_memset(p2p->pending_pd_devaddr, 0, ETH_ALEN);
-		p2p->pending_action_state = P2P_NO_PENDING_ACTION;
-	}
-
 	if (dev->dialog_token != msg.dialog_token) {
 		wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG,
 			"P2P: Ignore Provision Discovery Response with "
@@ -292,6 +287,11 @@ void p2p_process_prov_disc_resp(struct p2p_data *p2p, const u8 *sa,
 			msg.dialog_token, dev->dialog_token);
 		p2p_parse_free(&msg);
 		return;
+	}
+
+	if (p2p->pending_action_state == P2P_PENDING_PD) {
+		os_memset(p2p->pending_pd_devaddr, 0, ETH_ALEN);
+		p2p->pending_action_state = P2P_NO_PENDING_ACTION;
 	}
 
 	/*
@@ -393,7 +393,6 @@ int p2p_send_prov_disc_req(struct p2p_data *p2p, struct p2p_device *dev,
 	if (p2p->state != P2P_IDLE)
 		p2p_stop_listen_for_freq(p2p, freq);
 	p2p->pending_action_state = P2P_PENDING_PD;
-	p2p_set_timeout(p2p, 0, 300000);
 	if (p2p_send_action(p2p, freq, dev->info.p2p_device_addr,
 			    p2p->cfg->dev_addr, dev->info.p2p_device_addr,
 			    wpabuf_head(req), wpabuf_len(req), 200) < 0) {
@@ -411,7 +410,8 @@ int p2p_send_prov_disc_req(struct p2p_data *p2p, struct p2p_device *dev,
 
 
 int p2p_prov_disc_req(struct p2p_data *p2p, const u8 *peer_addr,
-		      u16 config_methods, int join, int force_freq)
+		      u16 config_methods, int join, int force_freq,
+		      int user_initiated_pd)
 {
 	struct p2p_device *dev;
 
@@ -449,11 +449,7 @@ int p2p_prov_disc_req(struct p2p_data *p2p, const u8 *peer_addr,
 		return 0;
 	}
 
-	/*
-	 * We use the join param as a cue to differentiate between user
-	 * initiated PD request and one issued during finds (internal).
-	 */
-	p2p->user_initiated_pd = !join;
+	p2p->user_initiated_pd = user_initiated_pd;
 
 	if (p2p->user_initiated_pd)
 		p2p->pd_retries = MAX_PROV_DISC_REQ_RETRIES;

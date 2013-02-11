@@ -18,6 +18,7 @@
 #include "sta_info.h"
 #include "ap_config.h"
 #include "p2p_hostapd.h"
+#include "hs20.h"
 #include "ap_drv_ops.h"
 
 
@@ -157,6 +158,20 @@ int hostapd_build_ap_extra_ies(struct hostapd_data *hapd,
 		wpabuf_free(a);
 	}
 #endif /* CONFIG_WIFI_DISPLAY */
+
+#ifdef CONFIG_HS20
+	pos = buf;
+	pos = hostapd_eid_hs20_indication(hapd, pos);
+	if (pos != buf) {
+		if (wpabuf_resize(&beacon, pos - buf) != 0)
+			goto fail;
+		wpabuf_put_data(beacon, buf, pos - buf);
+
+		if (wpabuf_resize(&proberesp, pos - buf) != 0)
+			goto fail;
+		wpabuf_put_data(proberesp, buf, pos - buf);
+	}
+#endif /* CONFIG_HS20 */
 
 	*beacon_ret = beacon;
 	*proberesp_ret = proberesp;
@@ -597,6 +612,16 @@ int hostapd_drv_sta_disassoc(struct hostapd_data *hapd,
 }
 
 
+int hostapd_drv_wnm_oper(struct hostapd_data *hapd, enum wnm_oper oper,
+			 const u8 *peer, u8 *buf, u16 *buf_len)
+{
+	if (hapd->driver == NULL || hapd->driver->wnm_oper == NULL)
+		return 0;
+	return hapd->driver->wnm_oper(hapd->drv_priv, oper, peer, buf,
+				      buf_len);
+}
+
+
 int hostapd_drv_send_action(struct hostapd_data *hapd, unsigned int freq,
 			    unsigned int wait, const u8 *dst, const u8 *data,
 			    size_t len)
@@ -606,35 +631,4 @@ int hostapd_drv_send_action(struct hostapd_data *hapd, unsigned int freq,
 	return hapd->driver->send_action(hapd->drv_priv, freq, wait, dst,
 					 hapd->own_addr, hapd->own_addr, data,
 					 len, 0);
-}
-
-
-int hostapd_channel_switch(struct hostapd_data *hapd, int freq, int flags,
-			   u8 tx_block, u8 post_switch_block_tx)
-{
-	struct hostapd_channel_switch params;
-
-	if (!hapd->driver || !hapd->driver->hapd_channel_switch)
-		return 0;
-
-	if (flags & HOSTAPD_CHAN_RADAR) {
-		wpa_printf(MSG_ERROR, "Can't switch to radar channel, "
-			   "DFS functionality is not supported");
-		return -1;
-	}
-
-	if (hapd->iface->conf->secondary_channel) {
-		wpa_printf(MSG_ERROR, "Channel switch is not supported "
-			   "with HT40");
-		return -1;
-	}
-
-	params.freq = freq;
-	params.tx_block = tx_block;
-	params.post_switch_block_tx = post_switch_block_tx;
-	params.ch_switch_count =
-	        (hapd->iconf->channel_switch_count > hapd->conf->dtim_period) ?
-	        hapd->iconf->channel_switch_count : hapd->conf->dtim_period * 2;
-
-	return hapd->driver->hapd_channel_switch(hapd->drv_priv, &params);
 }

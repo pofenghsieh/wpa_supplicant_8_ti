@@ -1,6 +1,6 @@
 /*
  * wpa_supplicant - Internal definitions
- * Copyright (c) 2003-2010, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2003-2012, Jouni Malinen <j@w1.fi>
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -239,6 +239,7 @@ struct wpa_global {
 		WPA_CONC_PREF_STA,
 		WPA_CONC_PREF_P2P
 	} conc_pref;
+	unsigned int p2p_cb_on_scan_complete:1;
 
 #ifdef CONFIG_WIFI_DISPLAY
 	int wifi_display;
@@ -253,6 +254,22 @@ enum offchannel_send_action_result {
 	OFFCHANNEL_SEND_ACTION_NO_ACK /* Frame was sent, but not acknowledged
 				       */,
 	OFFCHANNEL_SEND_ACTION_FAILED /* Frame was not sent due to a failure */
+};
+
+struct wps_ap_info {
+	u8 bssid[ETH_ALEN];
+	enum wps_ap_info_type {
+		WPS_AP_NOT_SEL_REG,
+		WPS_AP_SEL_REG,
+		WPS_AP_SEL_REG_OUR
+	} type;
+	unsigned int tries;
+	struct os_time last_attempt;
+};
+
+struct wpa_ssid_value {
+	u8 ssid[32];
+	size_t ssid_len;
 };
 
 /**
@@ -318,6 +335,11 @@ struct wpa_supplicant {
 	u8 *bssid_filter;
 	size_t bssid_filter_count;
 
+	u8 *disallow_aps_bssid;
+	size_t disallow_aps_bssid_count;
+	struct wpa_ssid_value *disallow_aps_ssid;
+	size_t disallow_aps_ssid_count;
+
 	enum { WPA_SETBAND_AUTO, WPA_SETBAND_5G, WPA_SETBAND_2G } setband;
 
 	/* previous scan was wildcard when interleaving between
@@ -344,6 +366,16 @@ struct wpa_supplicant {
 	size_t num_bss;
 	unsigned int bss_update_idx;
 	unsigned int bss_next_id;
+
+	 /*
+	  * Pointers to BSS entries in the order they were in the last scan
+	  * results.
+	  */
+	struct wpa_bss **last_scan_res;
+	unsigned int last_scan_res_used;
+	unsigned int last_scan_res_size;
+	int last_scan_full;
+	struct os_time last_scan;
 
 	struct wpa_driver_ops *driver;
 	int interface_removed; /* whether the network interface has been
@@ -374,12 +406,54 @@ struct wpa_supplicant {
 
 	struct wpa_blacklist *blacklist;
 
-	int scan_req; /* manual scan request; this forces a scan even if there
-		       * are no enabled networks in the configuration */
+	/**
+	 * extra_blacklist_count - Sum of blacklist counts after last connection
+	 *
+	 * This variable is used to maintain a count of temporary blacklisting
+	 * failures (maximum number for any BSS) over blacklist clear
+	 * operations. This is needed for figuring out whether there has been
+	 * failures prior to the last blacklist clear operation which happens
+	 * whenever no other not-blacklisted BSS candidates are available. This
+	 * gets cleared whenever a connection has been established successfully.
+	 */
+	int extra_blacklist_count;
+
+	/**
+	 * scan_req - Type of the scan request
+	 */
+	enum scan_req_type {
+		/**
+		 * NORMAL_SCAN_REQ - Normal scan request
+		 *
+		 * This is used for scans initiated by wpa_supplicant to find an
+		 * AP for a connection.
+		 */
+		NORMAL_SCAN_REQ,
+
+		/**
+		 * INITIAL_SCAN_REQ - Initial scan request
+		 *
+		 * This is used for the first scan on an interface to force at
+		 * least one scan to be run even if the configuration does not
+		 * include any enabled networks.
+		 */
+		INITIAL_SCAN_REQ,
+
+		/**
+		 * MANUAL_SCAN_REQ - Manual scan request
+		 *
+		 * This is used for scans where the user request a scan or
+		 * a specific wpa_supplicant operation (e.g., WPS) requires scan
+		 * to be run.
+		 */
+		MANUAL_SCAN_REQ
+	} scan_req;
 	int scan_runs; /* number of scan runs since WPS was started */
 	int *next_scan_freqs;
 	int scan_interval; /* time in sec between scans to find suitable AP */
 	int normal_scans; /* normal scans run before sched_scan */
+	int scan_for_connection; /* whether the scan request was triggered for
+				  * finding a connection */
 
 	unsigned int drv_flags;
 	unsigned int drv_enc;
@@ -445,6 +519,12 @@ struct wpa_supplicant {
 		u8 sched_obss_scan;
 		u16 obss_scan_int;
 		u16 bss_max_idle_period;
+		enum {
+			SME_SAE_INIT,
+			SME_SAE_COMMIT,
+			SME_SAE_CONFIRM
+		} sae_state;
+		u16 sae_send_confirm;
 	} sme;
 #endif /* CONFIG_SME */
 
@@ -530,24 +610,15 @@ struct wpa_supplicant {
 	 */
 	char cross_connect_uplink[100];
 
-	enum {
-		P2P_GROUP_REMOVAL_UNKNOWN,
-		P2P_GROUP_REMOVAL_REQUESTED,
-		P2P_GROUP_REMOVAL_IDLE_TIMEOUT,
-		P2P_GROUP_REMOVAL_UNAVAILABLE,
-		P2P_GROUP_REMOVAL_GO_ENDING_SESSION,
-#ifdef ANDROID_P2P
-		P2P_GROUP_REMOVAL_FREQ_CONFLICT
-#endif
-	} removal_reason;
-
-	unsigned int p2p_cb_on_scan_complete:1;
+	unsigned int sta_scan_pending:1;
 	unsigned int p2p_auto_join:1;
 	unsigned int p2p_auto_pd:1;
 	unsigned int p2p_persistent_group:1;
 	unsigned int p2p_fallback_to_go_neg:1;
 	unsigned int p2p_pd_before_go_neg:1;
 	unsigned int p2p_go_ht40:1;
+	unsigned int user_initiated_pd:1;
+	int p2p_persistent_go_freq;
 	int p2p_persistent_id;
 	int p2p_go_intent;
 	int p2p_connect_freq;
@@ -557,7 +628,6 @@ struct wpa_supplicant {
 	struct wpa_ssid *bgscan_ssid;
 	const struct bgscan_ops *bgscan;
 	void *bgscan_priv;
-	int roaming_disabled;
 
 	const struct autoscan_ops *autoscan;
 	struct wpa_driver_scan_params *autoscan_params;
@@ -565,9 +635,15 @@ struct wpa_supplicant {
 
 	struct wpa_ssid *connect_without_scan;
 
+	struct wps_ap_info *wps_ap;
+	size_t num_wps_ap;
+	int wps_ap_iter;
+
 	int after_wps;
+	u8 wps_bssid[ETH_ALEN];
 	int known_wps_freq;
 	unsigned int wps_freq;
+	u16 wps_ap_channel;
 	int wps_fragment_size;
 	int auto_reconnect_disabled;
 
@@ -582,6 +658,8 @@ struct wpa_supplicant {
 	unsigned int fetch_anqp_in_progress:1;
 	unsigned int network_select:1;
 	unsigned int auto_select:1;
+	unsigned int auto_network_select:1;
+	unsigned int fetch_all_anqp:1;
 #endif /* CONFIG_INTERWORKING */
 	unsigned int drv_capa_known;
 
@@ -595,6 +673,12 @@ struct wpa_supplicant {
 
 	/* WLAN_REASON_* reason codes. Negative if locally generated. */
 	int disconnect_reason;
+
+	struct ext_password_data *ext_pw;
+
+	struct wpabuf *last_gas_resp;
+	u8 last_gas_addr[ETH_ALEN];
+	u8 last_gas_dialog_token;
 };
 
 
@@ -625,17 +709,12 @@ void wpa_supplicant_req_auth_timeout(struct wpa_supplicant *wpa_s,
 void wpa_supplicant_reinit_autoscan(struct wpa_supplicant *wpa_s);
 void wpa_supplicant_set_state(struct wpa_supplicant *wpa_s,
 			      enum wpa_states state);
-void wpa_supplicant_start_bgscan(struct wpa_supplicant *wpa_s);
-void wpa_supplicant_stop_bgscan(struct wpa_supplicant *wpa_s);
-void wpa_supplicant_enable_roaming(struct wpa_supplicant *wpa_s);
-void wpa_supplicant_disable_roaming(struct wpa_supplicant *wpa_s);
 struct wpa_ssid * wpa_supplicant_get_ssid(struct wpa_supplicant *wpa_s);
 const char * wpa_supplicant_get_eap_mode(struct wpa_supplicant *wpa_s);
 void wpa_supplicant_cancel_auth_timeout(struct wpa_supplicant *wpa_s);
 void wpa_supplicant_deauthenticate(struct wpa_supplicant *wpa_s,
 				   int reason_code);
-void wpa_supplicant_disassociate(struct wpa_supplicant *wpa_s,
-				 int reason_code);
+
 void wpa_supplicant_remove_network(struct wpa_supplicant *wpa_s,
 				   struct wpa_ssid *ssid);
 void wpa_supplicant_enable_network(struct wpa_supplicant *wpa_s,
@@ -682,7 +761,13 @@ void wpa_supplicant_clear_status(struct wpa_supplicant *wpa_s);
 void wpas_connection_failed(struct wpa_supplicant *wpa_s, const u8 *bssid);
 int wpas_driver_bss_selection(struct wpa_supplicant *wpa_s);
 int wpas_is_p2p_prioritized(struct wpa_supplicant *wpa_s);
-void wpa_supplicant_proc_40mhz_intolerant(struct wpa_supplicant *wpa_s);
+void wpas_auth_failed(struct wpa_supplicant *wpa_s);
+void wpas_clear_temp_disabled(struct wpa_supplicant *wpa_s,
+			      struct wpa_ssid *ssid, int clear_failures);
+int disallowed_bssid(struct wpa_supplicant *wpa_s, const u8 *bssid);
+int disallowed_ssid(struct wpa_supplicant *wpa_s, const u8 *ssid,
+		    size_t ssid_len);
+void wpas_request_connection(struct wpa_supplicant *wpa_s);
 
 /**
  * wpa_supplicant_ctrl_iface_ctrl_rsp_handle - Handle a control response
@@ -710,6 +795,8 @@ int wpa_supplicant_connect(struct wpa_supplicant *wpa_s,
 void wpa_supplicant_stop_countermeasures(void *eloop_ctx, void *sock_ctx);
 void wpa_supplicant_delayed_mic_error_report(void *eloop_ctx, void *sock_ctx);
 void wnm_bss_keep_alive_deinit(struct wpa_supplicant *wpa_s);
+int wpas_select_network_from_last_scan(struct wpa_supplicant *wpa_s,
+				       int sched_scan_res);
 
 /* eap_register.c */
 int eap_register_methods(void);
@@ -725,5 +812,7 @@ static inline int network_is_persistent_group(struct wpa_ssid *ssid)
 }
 
 int wpas_network_disabled(struct wpa_supplicant *wpa_s, struct wpa_ssid *ssid);
+
+int wpas_init_ext_pw(struct wpa_supplicant *wpa_s);
 
 #endif /* WPA_SUPPLICANT_I_H */

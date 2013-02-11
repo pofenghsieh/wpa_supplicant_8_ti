@@ -32,6 +32,7 @@
 #define WPA_AUTH_KEY_MGMT_NONE RSN_SELECTOR(0x00, 0x50, 0xf2, 0)
 #define WPA_AUTH_KEY_MGMT_UNSPEC_802_1X RSN_SELECTOR(0x00, 0x50, 0xf2, 1)
 #define WPA_AUTH_KEY_MGMT_PSK_OVER_802_1X RSN_SELECTOR(0x00, 0x50, 0xf2, 2)
+#define WPA_AUTH_KEY_MGMT_CCKM RSN_SELECTOR(0x00, 0x40, 0x96, 0)
 #define WPA_CIPHER_SUITE_NONE RSN_SELECTOR(0x00, 0x50, 0xf2, 0)
 #define WPA_CIPHER_SUITE_WEP40 RSN_SELECTOR(0x00, 0x50, 0xf2, 1)
 #define WPA_CIPHER_SUITE_TKIP RSN_SELECTOR(0x00, 0x50, 0xf2, 2)
@@ -51,6 +52,9 @@
 #define RSN_AUTH_KEY_MGMT_802_1X_SHA256 RSN_SELECTOR(0x00, 0x0f, 0xac, 5)
 #define RSN_AUTH_KEY_MGMT_PSK_SHA256 RSN_SELECTOR(0x00, 0x0f, 0xac, 6)
 #define RSN_AUTH_KEY_MGMT_TPK_HANDSHAKE RSN_SELECTOR(0x00, 0x0f, 0xac, 7)
+#define RSN_AUTH_KEY_MGMT_SAE RSN_SELECTOR(0x00, 0x0f, 0xac, 8)
+#define RSN_AUTH_KEY_MGMT_FT_SAE RSN_SELECTOR(0x00, 0x0f, 0xac, 9)
+#define RSN_AUTH_KEY_MGMT_CCKM RSN_SELECTOR(0x00, 0x40, 0x96, 0x00)
 
 #define RSN_CIPHER_SUITE_NONE RSN_SELECTOR(0x00, 0x0f, 0xac, 0)
 #define RSN_CIPHER_SUITE_WEP40 RSN_SELECTOR(0x00, 0x0f, 0xac, 1)
@@ -64,6 +68,7 @@
 #define RSN_CIPHER_SUITE_AES_128_CMAC RSN_SELECTOR(0x00, 0x0f, 0xac, 6)
 #endif /* CONFIG_IEEE80211W */
 #define RSN_CIPHER_SUITE_NO_GROUP_ADDRESSED RSN_SELECTOR(0x00, 0x0f, 0xac, 7)
+#define RSN_CIPHER_SUITE_GCMP RSN_SELECTOR(0x00, 0x0f, 0xac, 8)
 
 /* EAPOL-Key Key Data Encapsulation
  * GroupKey and PeerKey require encryption, otherwise, encryption is optional.
@@ -83,6 +88,9 @@
 #ifdef CONFIG_IEEE80211W
 #define RSN_KEY_DATA_IGTK RSN_SELECTOR(0x00, 0x0f, 0xac, 9)
 #endif /* CONFIG_IEEE80211W */
+#define RSN_KEY_DATA_KEYID RSN_SELECTOR(0x00, 0x0f, 0xac, 10)
+#define RSN_KEY_DATA_MULTIBAND_GTK RSN_SELECTOR(0x00, 0x0f, 0xac, 11)
+#define RSN_KEY_DATA_MULTIBAND_KEYID RSN_SELECTOR(0x00, 0x0f, 0xac, 12)
 
 #define WPA_OUI_TYPE RSN_SELECTOR(0x00, 0x50, 0xf2, 1)
 
@@ -296,13 +304,6 @@ struct rsn_rdie {
 #pragma pack(pop)
 #endif /* _MSC_VER */
 
-struct wpa_wmm_ac_params {
-	int cwmin;
-	int cwmax;
-	int aifs;
-	int txop_limit; /* in units of 32us */
-	int admission_control_mandatory;
-};
 
 int wpa_eapol_key_mic(const u8 *key, int ver, const u8 *buf, size_t len,
 		      u8 *mic);
@@ -382,6 +383,12 @@ struct wpa_ft_ies {
 
 int wpa_ft_parse_ies(const u8 *ies, size_t ies_len, struct wpa_ft_ies *parse);
 
-int wpa_config_wmm_ac(struct wpa_wmm_ac_params wmm_ac_params[], char *name,
-				 char *val);
+int wpa_cipher_key_len(int cipher);
+int wpa_cipher_rsc_len(int cipher);
+int wpa_cipher_to_alg(int cipher);
+int wpa_cipher_valid_pairwise(int cipher);
+u32 wpa_cipher_to_suite(int proto, int cipher);
+int rsn_cipher_put_suites(u8 *pos, int ciphers);
+int wpa_cipher_put_suites(u8 *pos, int ciphers);
+
 #endif /* WPA_COMMON_H */

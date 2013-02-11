@@ -43,8 +43,10 @@ int wpa_eapol_key_mic(const u8 *key, int ver, const u8 *buf, size_t len,
 	u8 hash[SHA1_MAC_LEN];
 
 	switch (ver) {
+#ifndef CONFIG_FIPS
 	case WPA_KEY_INFO_TYPE_HMAC_MD5_RC4:
 		return hmac_md5(key, 16, buf, len, mic);
+#endif /* CONFIG_FIPS */
 	case WPA_KEY_INFO_TYPE_HMAC_SHA1_AES:
 		if (hmac_sha1(key, 16, buf, len, hash))
 			return -1;
@@ -350,6 +352,8 @@ static int rsn_selector_to_bitfield(const u8 *s)
 	if (RSN_SELECTOR_GET(s) == RSN_CIPHER_SUITE_AES_128_CMAC)
 		return WPA_CIPHER_AES_128_CMAC;
 #endif /* CONFIG_IEEE80211W */
+	if (RSN_SELECTOR_GET(s) == RSN_CIPHER_SUITE_GCMP)
+		return WPA_CIPHER_GCMP;
 	return 0;
 }
 
@@ -372,6 +376,12 @@ static int rsn_key_mgmt_to_bitfield(const u8 *s)
 	if (RSN_SELECTOR_GET(s) == RSN_AUTH_KEY_MGMT_PSK_SHA256)
 		return WPA_KEY_MGMT_PSK_SHA256;
 #endif /* CONFIG_IEEE80211W */
+#ifdef CONFIG_SAE
+	if (RSN_SELECTOR_GET(s) == RSN_AUTH_KEY_MGMT_SAE)
+		return WPA_KEY_MGMT_SAE;
+	if (RSN_SELECTOR_GET(s) == RSN_AUTH_KEY_MGMT_FT_SAE)
+		return WPA_KEY_MGMT_FT_SAE;
+#endif /* CONFIG_SAE */
 	return 0;
 }
 #endif /* CONFIG_NO_WPA2 */
@@ -906,6 +916,8 @@ const char * wpa_cipher_txt(int cipher)
 		return "CCMP";
 	case WPA_CIPHER_CCMP | WPA_CIPHER_TKIP:
 		return "CCMP+TKIP";
+	case WPA_CIPHER_GCMP:
+		return "GCMP";
 	default:
 		return "UNKNOWN";
 	}
@@ -989,76 +1001,6 @@ int wpa_compare_rsn_ie(int ft_initial_assoc,
 	return -1;
 }
 
-int wpa_config_wmm_ac(struct wpa_wmm_ac_params wmm_ac_params[], char *name,
-				 char *val)
-{
-	int num, v;
-	char *pos;
-	struct wpa_wmm_ac_params *ac;
-
-	/* skip 'wme_ac_' or 'wmm_ac_' prefix */
-	pos = name + 7;
-	if (os_strncmp(pos, "be_", 3) == 0) {
-		num = 0;
-		pos += 3;
-	} else if (os_strncmp(pos, "bk_", 3) == 0) {
-		num = 1;
-		pos += 3;
-	} else if (os_strncmp(pos, "vi_", 3) == 0) {
-		num = 2;
-		pos += 3;
-	} else if (os_strncmp(pos, "vo_", 3) == 0) {
-		num = 3;
-		pos += 3;
-	} else {
-		wpa_printf(MSG_ERROR, "Unknown WMM name '%s'", pos);
-		return -1;
-	}
-
-	ac = &wmm_ac_params[num];
-
-	if (os_strcmp(pos, "aifs") == 0) {
-		v = atoi(val);
-		if (v < 1 || v > 255) {
-			wpa_printf(MSG_ERROR, "Invalid AIFS value %d", v);
-			return -1;
-		}
-		ac->aifs = v;
-	} else if (os_strcmp(pos, "cwmin") == 0) {
-		v = atoi(val);
-		if (v < 0 || v > 12) {
-			wpa_printf(MSG_ERROR, "Invalid cwMin value %d", v);
-			return -1;
-		}
-		ac->cwmin = v;
-	} else if (os_strcmp(pos, "cwmax") == 0) {
-		v = atoi(val);
-		if (v < 0 || v > 12) {
-			wpa_printf(MSG_ERROR, "Invalid cwMax value %d", v);
-			return -1;
-		}
-		ac->cwmax = v;
-	} else if (os_strcmp(pos, "txop_limit") == 0) {
-		v = atoi(val);
-		if (v < 0 || v > 0xffff) {
-			wpa_printf(MSG_ERROR, "Invalid txop value %d", v);
-			return -1;
-		}
-		ac->txop_limit = v;
-	} else if (os_strcmp(pos, "acm") == 0) {
-		v = atoi(val);
-		if (v < 0 || v > 1) {
-			wpa_printf(MSG_ERROR, "Invalid acm value %d", v);
-			return -1;
-		}
-		ac->admission_control_mandatory = v;
-	} else {
-		wpa_printf(MSG_ERROR, "Unknown wmm_ac_ field '%s'", pos);
-		return -1;
-	}
-
-	return 0;
-}
 
 #ifdef CONFIG_IEEE80211R
 int wpa_insert_pmkid(u8 *ies, size_t ies_len, const u8 *pmkid)
@@ -1137,3 +1079,138 @@ int wpa_insert_pmkid(u8 *ies, size_t ies_len, const u8 *pmkid)
 	return added;
 }
 #endif /* CONFIG_IEEE80211R */
+
+
+int wpa_cipher_key_len(int cipher)
+{
+	switch (cipher) {
+	case WPA_CIPHER_CCMP:
+	case WPA_CIPHER_GCMP:
+		return 16;
+	case WPA_CIPHER_TKIP:
+		return 32;
+	case WPA_CIPHER_WEP104:
+		return 13;
+	case WPA_CIPHER_WEP40:
+		return 5;
+	}
+
+	return 0;
+}
+
+
+int wpa_cipher_rsc_len(int cipher)
+{
+	switch (cipher) {
+	case WPA_CIPHER_CCMP:
+	case WPA_CIPHER_GCMP:
+	case WPA_CIPHER_TKIP:
+		return 6;
+	case WPA_CIPHER_WEP104:
+	case WPA_CIPHER_WEP40:
+		return 0;
+	}
+
+	return 0;
+}
+
+
+int wpa_cipher_to_alg(int cipher)
+{
+	switch (cipher) {
+	case WPA_CIPHER_CCMP:
+		return WPA_ALG_CCMP;
+	case WPA_CIPHER_GCMP:
+		return WPA_ALG_GCMP;
+	case WPA_CIPHER_TKIP:
+		return WPA_ALG_TKIP;
+	case WPA_CIPHER_WEP104:
+	case WPA_CIPHER_WEP40:
+		return WPA_ALG_WEP;
+	}
+	return WPA_ALG_NONE;
+}
+
+
+int wpa_cipher_valid_pairwise(int cipher)
+{
+	return cipher == WPA_CIPHER_CCMP ||
+		cipher == WPA_CIPHER_GCMP ||
+		cipher == WPA_CIPHER_TKIP;
+}
+
+
+u32 wpa_cipher_to_suite(int proto, int cipher)
+{
+	if (cipher & WPA_CIPHER_CCMP)
+		return (proto == WPA_PROTO_RSN ?
+			RSN_CIPHER_SUITE_CCMP : WPA_CIPHER_SUITE_CCMP);
+	if (cipher & WPA_CIPHER_GCMP)
+		return RSN_CIPHER_SUITE_GCMP;
+	if (cipher & WPA_CIPHER_TKIP)
+		return (proto == WPA_PROTO_RSN ?
+			RSN_CIPHER_SUITE_TKIP : WPA_CIPHER_SUITE_TKIP);
+	if (cipher & WPA_CIPHER_WEP104)
+		return (proto == WPA_PROTO_RSN ?
+			RSN_CIPHER_SUITE_WEP104 : WPA_CIPHER_SUITE_WEP104);
+	if (cipher & WPA_CIPHER_WEP40)
+		return (proto == WPA_PROTO_RSN ?
+			RSN_CIPHER_SUITE_WEP40 : WPA_CIPHER_SUITE_WEP40);
+	if (cipher & WPA_CIPHER_NONE)
+		return (proto == WPA_PROTO_RSN ?
+			RSN_CIPHER_SUITE_NONE : WPA_CIPHER_SUITE_NONE);
+	return 0;
+}
+
+
+int rsn_cipher_put_suites(u8 *pos, int ciphers)
+{
+	int num_suites = 0;
+
+	if (ciphers & WPA_CIPHER_CCMP) {
+		RSN_SELECTOR_PUT(pos, RSN_CIPHER_SUITE_CCMP);
+		pos += RSN_SELECTOR_LEN;
+		num_suites++;
+	}
+	if (ciphers & WPA_CIPHER_GCMP) {
+		RSN_SELECTOR_PUT(pos, RSN_CIPHER_SUITE_GCMP);
+		pos += RSN_SELECTOR_LEN;
+		num_suites++;
+	}
+	if (ciphers & WPA_CIPHER_TKIP) {
+		RSN_SELECTOR_PUT(pos, RSN_CIPHER_SUITE_TKIP);
+		pos += RSN_SELECTOR_LEN;
+		num_suites++;
+	}
+	if (ciphers & WPA_CIPHER_NONE) {
+		RSN_SELECTOR_PUT(pos, RSN_CIPHER_SUITE_NONE);
+		pos += RSN_SELECTOR_LEN;
+		num_suites++;
+	}
+
+	return num_suites;
+}
+
+
+int wpa_cipher_put_suites(u8 *pos, int ciphers)
+{
+	int num_suites = 0;
+
+	if (ciphers & WPA_CIPHER_CCMP) {
+		RSN_SELECTOR_PUT(pos, WPA_CIPHER_SUITE_CCMP);
+		pos += WPA_SELECTOR_LEN;
+		num_suites++;
+	}
+	if (ciphers & WPA_CIPHER_TKIP) {
+		RSN_SELECTOR_PUT(pos, WPA_CIPHER_SUITE_TKIP);
+		pos += WPA_SELECTOR_LEN;
+		num_suites++;
+	}
+	if (ciphers & WPA_CIPHER_NONE) {
+		RSN_SELECTOR_PUT(pos, WPA_CIPHER_SUITE_NONE);
+		pos += WPA_SELECTOR_LEN;
+		num_suites++;
+	}
+
+	return num_suites;
+}

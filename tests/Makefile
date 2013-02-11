@@ -1,4 +1,6 @@
-TESTS=test-base64 test-md4 test-md5 test-milenage test-ms_funcs test-sha1 \
+TESTS=test-base64 test-md4 test-md5 test-milenage test-ms_funcs \
+	test-printf \
+	test-sha1 \
 	test-sha256 test-aes test-asn1 test-x509 test-x509v3 test-list test-rc4
 
 all: $(TESTS)
@@ -37,7 +39,7 @@ LLIBS = -Wl,--start-group $(DLIBS) -Wl,--end-group $(SLIBS)
 
 
 test-aes: test-aes.o $(LIBS)
-	$(LDO) $(LDFLAGS) -o $@ $^
+	$(LDO) $(LDFLAGS) -o $@ $^ $(LLIBS)
 
 test-asn1: test-asn1.o $(LIBS)
 	$(LDO) $(LDFLAGS) -o $@ $^
@@ -63,6 +65,9 @@ test-milenage: test-milenage.o $(LIBS)
 test-ms_funcs: test-ms_funcs.o $(LIBS)
 	$(LDO) $(LDFLAGS) -o $@ $^
 
+test-printf: test-printf.o $(LIBS)
+	$(LDO) $(LDFLAGS) -o $@ $^
+
 test-rc4: test-rc4.o $(LIBS)
 	$(LDO) $(LDFLAGS) -o $@ $^
 
@@ -85,6 +90,7 @@ run-tests: $(TESTS)
 	./test-md4
 	./test-md5
 	./test-milenage
+	./test-printf
 	./test-sha1
 	./test-sha256
 	@echo

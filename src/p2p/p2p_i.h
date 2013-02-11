@@ -208,6 +208,11 @@ struct p2p_data {
 		 * P2P_SEARCH_WHEN_READY - Waiting to start Search
 		 */
 		P2P_SEARCH_WHEN_READY,
+
+		/**
+		 * P2P_CONTINUE_SEARCH_WHEN_READY - Waiting to continue Search
+		 */
+		P2P_CONTINUE_SEARCH_WHEN_READY,
 	} state;
 
 	/**
@@ -219,6 +224,11 @@ struct p2p_data {
 	 * max_disc_int - maxDiscoverableInterval
 	 */
 	int max_disc_int;
+
+	/**
+	 * max_disc_tu - Maximum number of TUs for discoverable interval
+	 */
+	int max_disc_tu;
 
 	/**
 	 * devices - List of known P2P Device peers
@@ -345,7 +355,12 @@ struct p2p_data {
 	 * srv_update_indic - Service Update Indicator for local services
 	 */
 	u16 srv_update_indic;
-
+#ifdef ANDROID_P2P
+	/**
+	 * srv_count - Registered services count
+	 */
+	u16 srv_count;
+#endif
 	struct wpabuf *sd_resp; /* Fragmented SD response */
 	u8 sd_resp_addr[ETH_ALEN];
 	u8 sd_resp_dialog_token;
@@ -436,6 +451,10 @@ struct p2p_data {
 
 	u8 go_timeout;
 	u8 client_timeout;
+
+	/* Extra delay in milliseconds between search iterations */
+	unsigned int search_delay;
+	int in_search_delay;
 
 #ifdef CONFIG_WIFI_DISPLAY
 	struct wpabuf *wfd_ie_beacon;
@@ -640,6 +659,8 @@ void p2p_process_go_neg_conf(struct p2p_data *p2p, const u8 *sa,
 			     const u8 *data, size_t len);
 int p2p_connect_send(struct p2p_data *p2p, struct p2p_device *dev);
 u16 p2p_wps_method_pw_id(enum p2p_wps_method wps_method);
+void p2p_reselect_channel(struct p2p_data *p2p,
+			  struct p2p_channels *intersection);
 
 /* p2p_pd.c */
 void p2p_process_prov_disc_req(struct p2p_data *p2p, const u8 *sa,

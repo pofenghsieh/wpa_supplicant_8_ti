@@ -20,6 +20,7 @@
 #include "accounting.h"
 #include "ieee802_1x.h"
 #include "ieee802_11.h"
+#include "ieee802_11_auth.h"
 #include "wpa_auth.h"
 #include "preauth_auth.h"
 #include "ap_config.h"
@@ -232,9 +233,12 @@ void ap_free_sta(struct hostapd_data *hapd, struct sta_info *sta)
 
 	wpabuf_free(sta->wps_ie);
 	wpabuf_free(sta->p2p_ie);
+	wpabuf_free(sta->hs20_ie);
 
 	os_free(sta->ht_capabilities);
-	os_free(sta->psk);
+	hostapd_free_psk_list(sta->psk);
+	os_free(sta->identity);
+	os_free(sta->radius_cui);
 
 	os_free(sta);
 }
@@ -796,8 +800,9 @@ static void ap_sa_query_timer(void *eloop_ctx, void *timeout_ctx)
 	    ap_check_sa_query_timeout(hapd, sta))
 		return;
 
-	nbuf = os_realloc(sta->sa_query_trans_id,
-			  (sta->sa_query_count + 1) * WLAN_SA_QUERY_TR_ID_LEN);
+	nbuf = os_realloc_array(sta->sa_query_trans_id,
+				sta->sa_query_count + 1,
+				WLAN_SA_QUERY_TR_ID_LEN);
 	if (nbuf == NULL)
 		return;
 	if (sta->sa_query_count == 0) {
@@ -819,9 +824,7 @@ static void ap_sa_query_timer(void *eloop_ctx, void *timeout_ctx)
 		       HOSTAPD_LEVEL_DEBUG,
 		       "association SA Query attempt %d", sta->sa_query_count);
 
-#ifdef NEED_AP_MLME
 	ieee802_11_send_sa_query_req(hapd, sta->addr, trans_id);
-#endif /* NEED_AP_MLME */
 }
 
 

@@ -202,6 +202,7 @@ static int wpa_config_read_global_os_version(struct wpa_config *config,
 static int wpa_config_read_global(struct wpa_config *config, HKEY hk)
 {
 	int errors = 0;
+	int val;
 
 	wpa_config_read_reg_dword(hk, TEXT("ap_scan"), &config->ap_scan);
 	wpa_config_read_reg_dword(hk, TEXT("fast_reauth"),
@@ -270,6 +271,11 @@ static int wpa_config_read_global(struct wpa_config *config, HKEY hk)
 				  (int *) &config->max_num_sta);
 	wpa_config_read_reg_dword(hk, TEXT("disassoc_low_ack"),
 				  (int *) &config->disassoc_low_ack);
+
+	wpa_config_read_reg_dword(hk, TEXT("okc"), &config->okc);
+	wpa_config_read_reg_dword(hk, TEXT("pmf"), &val);
+	config->pmf = val;
+
 	wpa_config_read_reg_dword(hk, TEXT("sched_scan_num_short_intervals"),
 				  &config->sched_scan_num_short_intervals);
 	wpa_config_read_reg_dword(hk, TEXT("sched_scan_short_interval"),
@@ -347,13 +353,6 @@ static struct wpa_ssid * wpa_config_read_network(HKEY hk, const TCHAR *netw,
 			errors++;
 		}
 		wpa_config_update_psk(ssid);
-	}
-
-	if (wpa_key_mgmt_wpa_psk(ssid->key_mgmt) && !ssid->psk_set) {
-		wpa_printf(MSG_ERROR, "WPA-PSK accepted for key management, "
-			   "but no PSK configured for network '" TSTR "'.",
-			   netw);
-		errors++;
 	}
 
 	if ((ssid->group_cipher & WPA_CIPHER_CCMP) &&
@@ -629,6 +628,9 @@ static int wpa_config_write_global(struct wpa_config *config, HKEY hk)
 	wpa_config_write_reg_dword(hk, TEXT("sched_scan_long_interval"),
 				   config->sched_scan_long_interval,
 				   DEFAULT_SCHED_SCAN_LONG_INTERVAL);
+
+	wpa_config_write_reg_dword(hk, TEXT("okc"), config->okc, 0);
+	wpa_config_write_reg_dword(hk, TEXT("pmf"), config->pmf, 0);
 
 	return 0;
 }
@@ -925,11 +927,13 @@ static int wpa_config_write_network(HKEY hk, struct wpa_ssid *ssid, int id)
 	INT_DEFe(fragment_size, DEFAULT_FRAGMENT_SIZE);
 #endif /* IEEE8021X_EAPOL */
 	INT(mode);
-	INT(proactive_key_caching);
+	write_int(netw, "proactive_key_caching", ssid->proactive_key_caching,
+		  -1);
 	INT(disabled);
 	INT(peerkey);
 #ifdef CONFIG_IEEE80211W
-	INT(ieee80211w);
+	write_int(netw, "ieee80211w", ssid->ieee80211w,
+		  MGMT_FRAME_PROTECTION_DEFAULT);
 #endif /* CONFIG_IEEE80211W */
 	STR(id_str);
 

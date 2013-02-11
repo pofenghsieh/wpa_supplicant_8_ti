@@ -10,6 +10,7 @@
 #define HOSTAPD_H
 
 #include "common/defs.h"
+#include "ap_config.h"
 
 struct wpa_driver_ops;
 struct wpa_ctrl_dst;
@@ -23,8 +24,22 @@ struct full_dynamic_vlan;
 enum wps_event;
 union wps_event_data;
 
+struct hostapd_iface;
+
 struct hapd_interfaces {
+	int (*reload_config)(struct hostapd_iface *iface);
+	struct hostapd_config * (*config_read_cb)(const char *config_fname);
+	int (*ctrl_iface_init)(struct hostapd_data *hapd);
+	void (*ctrl_iface_deinit)(struct hostapd_data *hapd);
+	int (*for_each_interface)(struct hapd_interfaces *interfaces,
+				  int (*cb)(struct hostapd_iface *iface,
+					    void *ctx), void *ctx);
+	int (*driver_init)(struct hostapd_iface *iface);
+
 	size_t count;
+	int global_ctrl_sock;
+	char *global_iface_path;
+	char *global_iface_name;
 	struct hostapd_iface **iface;
 };
 
@@ -162,8 +177,6 @@ struct hostapd_data {
 	void (*setup_complete_cb)(void *ctx);
 	void *setup_complete_cb_ctx;
 
-	struct hostapd_channel_data *next_channel;
-
 #ifdef CONFIG_P2P
 	struct p2p_data *p2p;
 	struct p2p_group *p2p_group;
@@ -181,6 +194,10 @@ struct hostapd_data {
 #ifdef CONFIG_INTERWORKING
 	size_t gas_frag_limit;
 #endif /* CONFIG_INTERWORKING */
+
+#ifdef CONFIG_SQLITE
+	struct hostapd_eap_user tmp_eap_user;
+#endif /* CONFIG_SQLITE */
 };
 
 
@@ -190,8 +207,6 @@ struct hostapd_data {
 struct hostapd_iface {
 	struct hapd_interfaces *interfaces;
 	void *owner;
-	int (*reload_config)(struct hostapd_iface *iface);
-	struct hostapd_config * (*config_read_cb)(const char *config_fname);
 	char *config_fname;
 	struct hostapd_config *conf;
 
@@ -249,13 +264,6 @@ struct hostapd_iface {
 
 	u16 ht_op_mode;
 	void (*scan_cb)(struct hostapd_iface *iface);
-
-	int (*ctrl_iface_init)(struct hostapd_data *hapd);
-	void (*ctrl_iface_deinit)(struct hostapd_data *hapd);
-
-	int (*for_each_interface)(struct hapd_interfaces *interfaces,
-				  int (*cb)(struct hostapd_iface *iface,
-					    void *ctx), void *ctx);
 };
 
 /* hostapd.c */
@@ -273,9 +281,12 @@ void hostapd_interface_deinit(struct hostapd_iface *iface);
 void hostapd_interface_free(struct hostapd_iface *iface);
 void hostapd_new_assoc_sta(struct hostapd_data *hapd, struct sta_info *sta,
 			   int reassoc);
-struct
-hostapd_channel_data *hostapd_get_valid_channel(struct hostapd_data *hapd,
-						int req_freq);
+void hostapd_interface_deinit_free(struct hostapd_iface *iface);
+int hostapd_enable_iface(struct hostapd_iface *hapd_iface);
+int hostapd_reload_iface(struct hostapd_iface *hapd_iface);
+int hostapd_disable_iface(struct hostapd_iface *hapd_iface);
+int hostapd_add_iface(struct hapd_interfaces *ifaces, char *buf);
+int hostapd_remove_iface(struct hapd_interfaces *ifaces, char *buf);
 void hostapd_macaddr_acl_accept_sta(struct hostapd_data *hapd);
 void hostapd_macaddr_acl_deny_sta(struct hostapd_data *hapd);
 int hostapd_macaddr_acl_command(struct hostapd_data *hapd, char *cmd);
@@ -299,5 +310,9 @@ int hostapd_probe_req_rx(struct hostapd_data *hapd, const u8 *sa, const u8 *da,
 			 int ssi_signal);
 void hostapd_event_ch_switch(struct hostapd_data *hapd, int freq, int ht,
 			     int offset);
+
+const struct hostapd_eap_user *
+hostapd_get_eap_user(struct hostapd_data *hapd, const u8 *identity,
+		     size_t identity_len, int phase2);
 
 #endif /* HOSTAPD_H */

@@ -973,13 +973,6 @@ wpa_driver_bsd_deauthenticate(void *priv, const u8 *addr, int reason_code)
 }
 
 static int
-wpa_driver_bsd_disassociate(void *priv, const u8 *addr, int reason_code)
-{
-	return bsd_send_mlme_param(priv, IEEE80211_MLME_DISASSOC, reason_code,
-				   addr);
-}
-
-static int
 wpa_driver_bsd_set_auth_alg(void *priv, int auth_alg)
 {
 	int authmode;
@@ -1328,8 +1321,8 @@ wpa_driver_bsd_add_scan_entry(struct wpa_scan_results *res,
 
 	result->ie_len = pos - (u8 *)(result + 1);
 
-	tmp = os_realloc(res->res,
-			 (res->num + 1) * sizeof(struct wpa_scan_res *));
+	tmp = os_realloc_array(res->res, res->num + 1,
+			       sizeof(struct wpa_scan_res *));
 	if (tmp == NULL) {
 		os_free(result);
 		return;
@@ -1564,7 +1557,6 @@ const struct wpa_driver_ops wpa_driver_bsd_ops = {
 	.scan2			= wpa_driver_bsd_scan,
 	.get_scan_results2	= wpa_driver_bsd_get_scan_results2,
 	.deauthenticate		= wpa_driver_bsd_deauthenticate,
-	.disassociate		= wpa_driver_bsd_disassociate,
 	.associate		= wpa_driver_bsd_associate,
 	.get_capa		= wpa_driver_bsd_get_capa,
 #endif /* HOSTAPD */

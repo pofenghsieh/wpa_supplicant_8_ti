@@ -19,7 +19,7 @@
 #include "gas_query.h"
 
 
-#define GAS_QUERY_TIMEOUT 5
+#define GAS_QUERY_TIMEOUT_PERIOD 5
 
 
 struct gas_query_pending {
@@ -453,11 +453,12 @@ int gas_query_req(struct gas_query *gas, const u8 *dst, int freq,
 	if (gas_query_tx(gas, query, req) < 0) {
 		wpa_printf(MSG_DEBUG, "GAS: Failed to send Action frame to "
 			   MACSTR, MAC2STR(query->addr));
+		dl_list_del(&query->list);
 		os_free(query);
 		return -1;
 	}
 
-	eloop_register_timeout(GAS_QUERY_TIMEOUT, 0, gas_query_timeout,
+	eloop_register_timeout(GAS_QUERY_TIMEOUT_PERIOD, 0, gas_query_timeout,
 			       gas, query);
 
 	return dialog_token;

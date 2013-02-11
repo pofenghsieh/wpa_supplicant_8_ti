@@ -55,6 +55,11 @@ $(DESTDIR)$(BINDIR)/%: %
 install: $(addprefix $(DESTDIR)$(BINDIR)/,$(BINALL))
 	$(MAKE) -C ../src install
 
+ifdef CONFIG_FIPS
+CONFIG_NO_RANDOM_POOL=
+CONFIG_OPENSSL_CMAC=y
+endif
+
 OBJS = config.o
 OBJS += notify.o
 OBJS += bss.o
@@ -165,6 +170,15 @@ OBJS += ../src/rsn_supp/wpa_ft.o
 NEED_80211_COMMON=y
 NEED_SHA256=y
 NEED_AES_OMAC1=y
+endif
+
+ifdef CONFIG_SAE
+CFLAGS += -DCONFIG_SAE
+endif
+
+ifdef CONFIG_IEEE80211V
+CFLAGS += -DCONFIG_IEEE80211V
+OBJS += wnm_sta.o
 endif
 
 ifdef CONFIG_TDLS
@@ -298,6 +312,17 @@ OBJS += ../src/eap_peer/eap_tls.o
 OBJS_h += ../src/eap_server/eap_server_tls.o
 endif
 TLS_FUNCS=y
+CONFIG_IEEE8021X_EAPOL=y
+endif
+
+ifdef CONFIG_EAP_UNAUTH_TLS
+# EAP-UNAUTH-TLS
+CFLAGS += -DEAP_UNAUTH_TLS
+ifndef CONFIG_EAP_UNAUTH_TLS
+OBJS += ../src/eap_peer/eap_tls.o
+OBJS_h += ../src/eap_server/eap_server_tls.o
+TLS_FUNCS=y
+endif
 CONFIG_IEEE8021X_EAPOL=y
 endif
 
@@ -567,25 +592,10 @@ NEED_80211_COMMON=y
 NEED_AES_CBC=y
 NEED_MODEXP=y
 
-ifdef CONFIG_WPS_UFD
-CFLAGS += -DCONFIG_WPS_UFD
-OBJS += ../src/wps/wps_ufd.o
-NEED_WPS_OOB=y
-endif
-
 ifdef CONFIG_WPS_NFC
 CFLAGS += -DCONFIG_WPS_NFC
 OBJS += ../src/wps/ndef.o
-OBJS += ../src/wps/wps_nfc.o
 NEED_WPS_OOB=y
-ifdef CONFIG_WPS_NFC_PN531
-PN531_PATH ?= /usr/local/src/nfc
-CFLAGS += -DCONFIG_WPS_NFC_PN531
-CFLAGS += -I${PN531_PATH}/inc
-OBJS += ../src/wps/wps_nfc_pn531.o
-LIBS += ${PN531_PATH}/lib/wpsnfc.dll
-LIBS += ${PN531_PATH}/lib/libnfc_mapping_pn53x.dll
-endif
 endif
 
 ifdef NEED_WPS_OOB
@@ -711,6 +721,7 @@ OBJS += ../src/ap/ieee802_11_shared.o
 OBJS += ../src/ap/drv_callbacks.o
 OBJS += ../src/ap/ap_drv_ops.o
 OBJS += ../src/ap/beacon.o
+OBJS += ../src/ap/eap_user_db.o
 ifdef CONFIG_IEEE80211N
 OBJS += ../src/ap/ieee802_11_ht.o
 endif
@@ -745,6 +756,9 @@ OBJS += ../src/eap_server/eap_server_wsc.o
 endif
 ifdef CONFIG_INTERWORKING
 OBJS += ../src/ap/gas_serv.o
+endif
+ifdef CONFIG_HS20
+OBJS += ../src/ap/hs20.o
 endif
 endif
 
@@ -844,7 +858,9 @@ NEED_DES=y
 # Shared TLS functions (needed for EAP_TLS, EAP_PEAP, EAP_TTLS, and EAP_FAST)
 OBJS += ../src/eap_peer/eap_tls_common.o
 OBJS_h += ../src/eap_server/eap_server_tls_common.o
+ifndef CONFIG_FIPS
 NEED_TLS_PRF=y
+endif
 endif
 
 ifndef CONFIG_TLS
@@ -873,6 +889,10 @@ OBJS += ../src/crypto/fips_prf_openssl.o
 endif
 LIBS += -lcrypto
 LIBS_p += -lcrypto
+ifdef CONFIG_TLS_ADD_DL
+LIBS += -ldl
+LIBS_p += -ldl
+endif
 endif
 
 ifeq ($(CONFIG_TLS), gnutls)
@@ -1052,7 +1072,11 @@ AESOBJS += ../src/crypto/aes-encblock.o
 endif
 ifdef NEED_AES_OMAC1
 NEED_AES_ENC=y
+ifdef CONFIG_OPENSSL_CMAC
+CFLAGS += -DCONFIG_OPENSSL_CMAC
+else
 AESOBJS += ../src/crypto/aes-omac1.o
+endif
 endif
 ifdef NEED_AES_WRAP
 NEED_AES_ENC=y
@@ -1072,7 +1096,10 @@ OBJS += $(AESOBJS)
 endif
 
 ifdef NEED_SHA1
+ifneq ($(CONFIG_TLS), openssl)
 SHA1OBJS += ../src/crypto/sha1.o
+endif
+SHA1OBJS += ../src/crypto/sha1-prf.o
 ifdef CONFIG_INTERNAL_SHA1
 SHA1OBJS += ../src/crypto/sha1-internal.o
 ifdef NEED_FIPS186_2_PRF
@@ -1082,7 +1109,9 @@ endif
 ifdef CONFIG_NO_WPA_PASSPHRASE
 CFLAGS += -DCONFIG_NO_PBKDF2
 else
+ifneq ($(CONFIG_TLS), openssl)
 SHA1OBJS += ../src/crypto/sha1-pbkdf2.o
+endif
 endif
 ifdef NEED_T_PRF
 SHA1OBJS += ../src/crypto/sha1-tprf.o
@@ -1092,13 +1121,12 @@ SHA1OBJS += ../src/crypto/sha1-tlsprf.o
 endif
 endif
 
-MD5OBJS = ../src/crypto/md5.o
+ifndef CONFIG_FIPS
+MD5OBJS += ../src/crypto/md5.o
+endif
 ifdef NEED_MD5
 ifdef CONFIG_INTERNAL_MD5
 MD5OBJS += ../src/crypto/md5-internal.o
-endif
-ifdef CONFIG_FIPS
-MD5OBJS += ../src/crypto/md5-non-fips.o
 endif
 OBJS += $(MD5OBJS)
 OBJS_p += $(MD5OBJS)
@@ -1126,7 +1154,10 @@ endif
 SHA256OBJS = # none by default
 ifdef NEED_SHA256
 CFLAGS += -DCONFIG_SHA256
+ifneq ($(CONFIG_TLS), openssl)
 SHA256OBJS += ../src/crypto/sha256.o
+endif
+SHA256OBJS += ../src/crypto/sha256-prf.o
 ifdef CONFIG_INTERNAL_SHA256
 SHA256OBJS += ../src/crypto/sha256-internal.o
 endif
@@ -1171,6 +1202,11 @@ CFLAGS += -DCONFIG_CTRL_IFACE_UDP
 endif
 ifeq ($(CONFIG_CTRL_IFACE), named_pipe)
 CFLAGS += -DCONFIG_CTRL_IFACE_NAMED_PIPE
+endif
+ifeq ($(CONFIG_CTRL_IFACE), udp-remote)
+CONFIG_CTRL_IFACE=udp
+CFLAGS += -DCONFIG_CTRL_IFACE_UDP
+CFLAGS += -DCONFIG_CTRL_IFACE_UDP_REMOTE
 endif
 OBJS += ctrl_iface.o ctrl_iface_$(CONFIG_CTRL_IFACE).o
 endif
@@ -1302,6 +1338,9 @@ endif
 
 ifdef CONFIG_FIPS
 CFLAGS += -DCONFIG_FIPS
+ifneq ($(CONFIG_TLS), openssl)
+$(error CONFIG_FIPS=y requires CONFIG_TLS=openssl)
+endif
 endif
 
 OBJS += $(SHA1OBJS) $(DESOBJS)
@@ -1341,6 +1380,17 @@ endif
 ifdef NEED_AUTOSCAN
 CFLAGS += -DCONFIG_AUTOSCAN
 OBJS += autoscan.o
+endif
+
+ifdef CONFIG_EXT_PASSWORD_TEST
+OBJS += ../src/utils/ext_password_test.o
+CFLAGS += -DCONFIG_EXT_PASSWORD_TEST
+NEED_EXT_PASSWORD=y
+endif
+
+ifdef NEED_EXT_PASSWORD
+OBJS += ../src/utils/ext_password.o
+CFLAGS += -DCONFIG_EXT_PASSWORD
 endif
 
 ifdef NEED_GAS
@@ -1563,6 +1613,11 @@ test-eap_sim_common: $(TEST_EAP_SIM_COMMON_OBJS)
 	rm test-eap_sim_common
 
 tests: test-eap_sim_common
+
+FIPSDIR=/usr/local/ssl/fips-2.0
+FIPSLD=$(FIPSDIR)/bin/fipsld
+fips:
+	$(MAKE) CC=$(FIPSLD) FIPSLD_CC="$(CC)"
 
 clean:
 	$(MAKE) -C ../src clean

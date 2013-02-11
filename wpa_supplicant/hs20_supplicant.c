@@ -79,8 +79,10 @@ int hs20_anqp_send_req(struct wpa_supplicant *wpa_s, const u8 *dst, u32 stypes,
 
 	freq = wpa_s->assoc_freq;
 	bss = wpa_bss_get_bssid(wpa_s, dst);
-	if (bss)
+	if (bss) {
+		wpa_bss_anqp_unshare_alloc(bss);
 		freq = bss->freq;
+	}
 	if (freq <= 0)
 		return -1;
 
@@ -110,9 +112,13 @@ void hs20_parse_rx_hs20_anqp_resp(struct wpa_supplicant *wpa_s,
 	const u8 *pos = data;
 	u8 subtype;
 	struct wpa_bss *bss = wpa_bss_get_bssid(wpa_s, sa);
+	struct wpa_bss_anqp *anqp = NULL;
 
 	if (slen < 2)
 		return;
+
+	if (bss)
+		anqp = bss->anqp;
 
 	subtype = *pos++;
 	slen--;
@@ -130,28 +136,35 @@ void hs20_parse_rx_hs20_anqp_resp(struct wpa_supplicant *wpa_s,
 		wpa_msg(wpa_s, MSG_INFO, "RX-HS20-ANQP " MACSTR
 			" Operator Friendly Name", MAC2STR(sa));
 		wpa_hexdump_ascii(MSG_DEBUG, "oper friendly name", pos, slen);
-		if (bss) {
-			wpabuf_free(bss->hs20_operator_friendly_name);
-			bss->hs20_operator_friendly_name =
+		if (anqp) {
+			wpabuf_free(anqp->hs20_operator_friendly_name);
+			anqp->hs20_operator_friendly_name =
 				wpabuf_alloc_copy(pos, slen);
 		}
 		break;
 	case HS20_STYPE_WAN_METRICS:
+		wpa_hexdump(MSG_DEBUG, "WAN Metrics", pos, slen);
+		if (slen < 13) {
+			wpa_dbg(wpa_s, MSG_DEBUG, "HS 2.0: Too short WAN "
+				"Metrics value from " MACSTR, MAC2STR(sa));
+			break;
+		}
 		wpa_msg(wpa_s, MSG_INFO, "RX-HS20-ANQP " MACSTR
-			" WAN Metrics", MAC2STR(sa));
-		wpa_hexdump_ascii(MSG_DEBUG, "WAN Metrics", pos, slen);
-		if (bss) {
-			wpabuf_free(bss->hs20_wan_metrics);
-			bss->hs20_wan_metrics = wpabuf_alloc_copy(pos, slen);
+			" WAN Metrics %02x:%u:%u:%u:%u:%u", MAC2STR(sa),
+			pos[0], WPA_GET_LE32(pos + 1), WPA_GET_LE32(pos + 5),
+			pos[9], pos[10], WPA_GET_LE16(pos + 11));
+		if (anqp) {
+			wpabuf_free(anqp->hs20_wan_metrics);
+			anqp->hs20_wan_metrics = wpabuf_alloc_copy(pos, slen);
 		}
 		break;
 	case HS20_STYPE_CONNECTION_CAPABILITY:
 		wpa_msg(wpa_s, MSG_INFO, "RX-HS20-ANQP " MACSTR
 			" Connection Capability", MAC2STR(sa));
 		wpa_hexdump_ascii(MSG_DEBUG, "conn capability", pos, slen);
-		if (bss) {
-			wpabuf_free(bss->hs20_connection_capability);
-			bss->hs20_connection_capability =
+		if (anqp) {
+			wpabuf_free(anqp->hs20_connection_capability);
+			anqp->hs20_connection_capability =
 				wpabuf_alloc_copy(pos, slen);
 		}
 		break;
@@ -159,9 +172,9 @@ void hs20_parse_rx_hs20_anqp_resp(struct wpa_supplicant *wpa_s,
 		wpa_msg(wpa_s, MSG_INFO, "RX-HS20-ANQP " MACSTR
 			" Operating Class", MAC2STR(sa));
 		wpa_hexdump_ascii(MSG_DEBUG, "Operating Class", pos, slen);
-		if (bss) {
-			wpabuf_free(bss->hs20_operating_class);
-			bss->hs20_operating_class =
+		if (anqp) {
+			wpabuf_free(anqp->hs20_operating_class);
+			anqp->hs20_operating_class =
 				wpabuf_alloc_copy(pos, slen);
 		}
 		break;

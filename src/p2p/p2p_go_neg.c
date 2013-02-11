@@ -211,7 +211,7 @@ int p2p_connect_send(struct p2p_data *p2p, struct p2p_device *dev)
 		else
 			return -1;
 		return p2p_prov_disc_req(p2p, dev->info.p2p_device_addr,
-					 config_method, 0, 0);
+					 config_method, 0, 0, 1);
 	}
 
 	freq = dev->listen_freq > 0 ? dev->listen_freq : dev->oper_freq;
@@ -336,8 +336,8 @@ static struct wpabuf * p2p_build_go_neg_resp(struct p2p_data *p2p,
 }
 
 
-static void p2p_reselect_channel(struct p2p_data *p2p,
-				 struct p2p_channels *intersection)
+void p2p_reselect_channel(struct p2p_data *p2p,
+			  struct p2p_channels *intersection)
 {
 	struct p2p_reg_class *cl;
 	int freq;
@@ -1230,6 +1230,18 @@ void p2p_process_go_neg_conf(struct p2p_data *p2p, const u8 *sa,
 			"becomes GO");
 		return;
 	}
+
+	/*
+	 * The peer could have missed our ctrl::ack frame for GO Negotiation
+	 * Confirm and continue retransmitting the frame. To reduce the
+	 * likelihood of the peer not getting successful TX status for the
+	 * GO Negotiation Confirm frame, wait a short time here before starting
+	 * the group so that we will remain on the current channel to
+	 * acknowledge any possible retransmission from the peer.
+	 */
+	wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG, "P2P: 20 ms wait on current "
+		"channel before starting group");
+	os_sleep(0, 20000);
 
 	p2p_go_complete(p2p, dev);
 }

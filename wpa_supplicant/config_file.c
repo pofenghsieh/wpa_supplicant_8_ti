@@ -19,6 +19,29 @@
 #include "p2p/p2p.h"
 
 
+static int newline_terminated(const char *buf, size_t buflen)
+{
+	size_t len = os_strlen(buf);
+	if (len == 0)
+		return 0;
+	if (len == buflen - 1 && buf[buflen - 1] != '\r' &&
+	    buf[len - 1] != '\n')
+		return 0;
+	return 1;
+}
+
+
+static void skip_line_end(FILE *stream)
+{
+	char buf[100];
+	while (fgets(buf, sizeof(buf), stream)) {
+		buf[sizeof(buf) - 1] = '\0';
+		if (newline_terminated(buf, sizeof(buf)))
+			return;
+	}
+}
+
+
 /**
  * wpa_config_get_line - Read the next configuration file line
  * @s: Buffer for the line
@@ -41,6 +64,15 @@ static char * wpa_config_get_line(char *s, int size, FILE *stream, int *line,
 	while (fgets(s, size, stream)) {
 		(*line)++;
 		s[size - 1] = '\0';
+		if (!newline_terminated(s, size)) {
+			/*
+			 * The line was truncated - skip rest of it to avoid
+			 * confusing error messages.
+			 */
+			wpa_printf(MSG_INFO, "Long line in configuration file "
+				   "truncated");
+			skip_line_end(stream);
+		}
 		pos = s;
 
 		/* Skip white space from the beginning of line. */
@@ -99,12 +131,6 @@ static int wpa_config_validate_network(struct wpa_ssid *ssid, int line)
 		wpa_config_update_psk(ssid);
 	}
 
-	if (wpa_key_mgmt_wpa_psk(ssid->key_mgmt) && !ssid->psk_set) {
-		wpa_printf(MSG_ERROR, "Line %d: WPA-PSK accepted for key "
-			   "management, but no PSK configured.", line);
-		errors++;
-	}
-
 	if ((ssid->group_cipher & WPA_CIPHER_CCMP) &&
 	    !(ssid->pairwise_cipher & WPA_CIPHER_CCMP) &&
 	    !(ssid->pairwise_cipher & WPA_CIPHER_NONE)) {
@@ -123,7 +149,7 @@ static struct wpa_ssid * wpa_config_read_network(FILE *f, int *line, int id)
 {
 	struct wpa_ssid *ssid;
 	int errors = 0, end = 0;
-	char buf[256], *pos, *pos2;
+	char buf[2000], *pos, *pos2;
 
 	wpa_printf(MSG_MSGDUMP, "Line: %d - start of a new network block",
 		   *line);
@@ -329,11 +355,17 @@ struct wpa_config * wpa_config_read(const char *name)
 	int cred_id = 0;
 
 	config = wpa_config_alloc_empty(NULL, NULL);
-	if (config == NULL)
+	if (config == NULL) {
+		wpa_printf(MSG_ERROR, "Failed to allocate config file "
+			   "structure");
 		return NULL;
+	}
+
 	wpa_printf(MSG_DEBUG, "Reading configuration file '%s'", name);
 	f = fopen(name, "r");
 	if (f == NULL) {
+		wpa_printf(MSG_ERROR, "Failed to open config file '%s', "
+			   "error: %s", name, strerror(errno));
 		os_free(config);
 		return NULL;
 	}
@@ -378,28 +410,12 @@ struct wpa_config * wpa_config_read(const char *name)
 		} else if (os_strncmp(pos, "blob-base64-", 12) == 0) {
 			if (wpa_config_process_blob(config, f, &line, pos + 12)
 			    < 0) {
+				wpa_printf(MSG_ERROR, "Line %d: failed to "
+					   "process blob.", line);
 				errors++;
 				continue;
 			}
 #endif /* CONFIG_NO_CONFIG_BLOBS */
-#ifdef CONFIG_P2P
-		} else if (os_strncmp(buf, "wme_ac_", 7) == 0 ||
-			   os_strncmp(buf, "wmm_ac_", 7) == 0) {
-			pos = os_strchr(buf, '=');
-			if (pos == NULL) {
-				wpa_printf(MSG_ERROR, "Line %d: invalid line '%s'",
-						line, buf);
-				errors++;
-				continue;
-			}
-			*pos = '\0';
-			pos++;
-			if (wpa_config_wmm_ac(config->wmm_ac_params, buf, pos)) {
-				wpa_printf(MSG_ERROR, "Line %d: invalid WMM "
-					   "ac item", line);
-				errors++;
-			}
-#endif /* CONFIG_P2P */
 		} else if (wpa_config_process_global(config, pos, line) < 0) {
 			wpa_printf(MSG_ERROR, "Line %d: Invalid configuration "
 				   "line '%s'.", line, pos);
@@ -660,11 +676,12 @@ static void wpa_config_write_network(FILE *f, struct wpa_ssid *ssid)
 	INT_DEFe(fragment_size, DEFAULT_FRAGMENT_SIZE);
 #endif /* IEEE8021X_EAPOL */
 	INT(mode);
-	INT(proactive_key_caching);
+	write_int(f, "proactive_key_caching", ssid->proactive_key_caching, -1);
 	INT(disabled);
 	INT(peerkey);
 #ifdef CONFIG_IEEE80211W
-	INT(ieee80211w);
+	write_int(f, "ieee80211w", ssid->ieee80211w,
+		  MGMT_FRAME_PROTECTION_DEFAULT);
 #endif /* CONFIG_IEEE80211W */
 	STR(id_str);
 #ifdef CONFIG_P2P
@@ -852,9 +869,15 @@ static void wpa_config_write_global(FILE *f, struct wpa_config *config)
 		}
 		fprintf(f, "\n");
 	}
-
+	if (config->p2p_go_ht40)
+		fprintf(f, "p2p_go_ht40=%u\n", config->p2p_go_ht40);
 	if (config->p2p_disabled)
 		fprintf(f, "p2p_disabled=%u\n", config->p2p_disabled);
+	if (config->p2p_no_group_iface)
+		fprintf(f, "p2p_no_group_iface=%u\n",
+			config->p2p_no_group_iface);
+	if (config->p2p_multi_chan)
+		fprintf(f, "p2p_multi_chan=%u\n", config->p2p_multi_chan);
 #endif /* CONFIG_P2P */
 	if (config->country[0] && config->country[1]) {
 		fprintf(f, "country=%c%c\n",
@@ -896,13 +919,23 @@ static void wpa_config_write_global(FILE *f, struct wpa_config *config)
 	write_global_bin(f, "wps_nfc_dh_pubkey", config->wps_nfc_dh_pubkey);
 	write_global_bin(f, "wps_nfc_dh_privkey", config->wps_nfc_dh_privkey);
 	write_global_bin(f, "wps_nfc_dev_pw", config->wps_nfc_dev_pw);
+
+	if (config->ext_password_backend)
+		fprintf(f, "ext_password_backend=%s\n",
+			config->ext_password_backend);
 	if (config->p2p_go_max_inactivity != DEFAULT_P2P_GO_MAX_INACTIVITY)
-		fprintf(f, "p2p_go_max_inactivity=%u\n",
+		fprintf(f, "p2p_go_max_inactivity=%d\n",
 			config->p2p_go_max_inactivity);
-	if (config->p2p_go_ht40)
-		fprintf(f, "p2p_go_ht40=%u\n", config->p2p_go_ht40);
-	if (config->p2p_multi_chan)
-		fprintf(f, "p2p_multi_chan=%u\n", config->p2p_multi_chan);
+	if (config->auto_interworking)
+		fprintf(f, "auto_interworking=%d\n",
+			config->auto_interworking);
+	if (config->okc)
+		fprintf(f, "okc=%d\n", config->okc);
+	if (config->pmf)
+		fprintf(f, "pmf=%d\n", config->pmf);
+	if (config->concurrent_sched_scan)
+		fprintf(f, "concurrent_sched_scan=%u\n",
+			config->concurrent_sched_scan);
 	if (config->sched_scan_num_short_intervals !=
 	    DEFAULT_SCHED_SCAN_NUM_SHORT_INTERVALS)
 		fprintf(f, "sched_scan_num_short_intervals=%u\n",
@@ -915,13 +948,6 @@ static void wpa_config_write_global(FILE *f, struct wpa_config *config)
 	    DEFAULT_SCHED_SCAN_LONG_INTERVAL)
 		fprintf(f, "sched_scan_long_intervals=%u\n",
 			config->sched_scan_long_interval);
-#ifdef ANDROID_P2P
-	if (config->p2p_conc_mode)
-		fprintf(f, "p2p_conc_mode=%u\n", config->p2p_conc_mode);
-#endif
-	if (config->concurrent_sched_scan)
-		fprintf(f, "concurrent_sched_scan=%u\n",
-			config->concurrent_sched_scan);
 }
 
 #endif /* CONFIG_NO_CONFIG_WRITE */

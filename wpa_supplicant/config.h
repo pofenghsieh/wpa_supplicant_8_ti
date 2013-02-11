@@ -18,7 +18,7 @@
 #define DEFAULT_FAST_REAUTH 1
 #define DEFAULT_P2P_GO_INTENT 7
 #define DEFAULT_P2P_INTRA_BSS 1
-#define DEFAULT_P2P_GO_MAX_INACTIVITY (5*60)
+#define DEFAULT_P2P_GO_MAX_INACTIVITY (5 * 60)
 #define DEFAULT_BSS_MAX_COUNT 200
 #define DEFAULT_BSS_EXPIRATION_AGE 180
 #define DEFAULT_BSS_EXPIRATION_SCAN_COUNT 2
@@ -32,7 +32,7 @@
 
 #include "config_ssid.h"
 #include "wps/wps.h"
-#include "common/wpa_common.h"
+#include "common/ieee802_11_common.h"
 
 
 struct wpa_cred {
@@ -86,6 +86,11 @@ struct wpa_cred {
 	 * password - Password for Interworking network selection
 	 */
 	char *password;
+
+	/**
+	 * ext_password - Whether password is a name for external storage
+	 */
+	int ext_password;
 
 	/**
 	 * ca_cert - CA certificate for Interworking network selection
@@ -155,6 +160,47 @@ struct wpa_cred {
 	 * whether the AP is operated by the Home SP.
 	 */
 	char *domain;
+
+	/**
+	 * roaming_consortium - Roaming Consortium OI
+	 *
+	 * If roaming_consortium_len is non-zero, this field contains the
+	 * Roaming Consortium OI that can be used to determine which access
+	 * points support authentication with this credential. This is an
+	 * alternative to the use of the realm parameter. When using Roaming
+	 * Consortium to match the network, the EAP parameters need to be
+	 * pre-configured with the credential since the NAI Realm information
+	 * may not be available or fetched.
+	 */
+	u8 roaming_consortium[15];
+
+	/**
+	 * roaming_consortium_len - Length of roaming_consortium
+	 */
+	size_t roaming_consortium_len;
+
+	/**
+	 * eap_method - EAP method to use
+	 *
+	 * Pre-configured EAP method to use with this credential or %NULL to
+	 * indicate no EAP method is selected, i.e., the method will be
+	 * selected automatically based on ANQP information.
+	 */
+	struct eap_method_type *eap_method;
+
+	/**
+	 * phase1 - Phase 1 (outer authentication) parameters
+	 *
+	 * Pre-configured EAP parameters or %NULL.
+	 */
+	char *phase1;
+
+	/**
+	 * phase2 - Phase 2 (inner authentication) parameters
+	 *
+	 * Pre-configured EAP parameters or %NULL.
+	 */
+	char *phase2;
 };
 
 
@@ -172,9 +218,7 @@ struct wpa_cred {
 #define CFG_CHANGED_P2P_LISTEN_CHANNEL BIT(11)
 #define CFG_CHANGED_P2P_OPER_CHANNEL BIT(12)
 #define CFG_CHANGED_P2P_PREF_CHAN BIT(13)
-#ifdef ANDROID_P2P
-#define CFG_CHANGED_IFACE_PRIORITY BIT(14)
-#endif
+#define CFG_CHANGED_EXT_PW_BACKEND BIT(14)
 
 /**
  * struct wpa_config - wpa_supplicant configuration data
@@ -527,7 +571,6 @@ struct wpa_config {
 	struct p2p_channel *p2p_pref_chan;
 
 	struct wpabuf *wps_vendor_ext_m1;
-	struct wpa_wmm_ac_params wmm_ac_params[4];
 
 #define MAX_WPS_VENDOR_EXT 10
 	/**
@@ -681,9 +724,15 @@ struct wpa_config {
 	 */
 	struct wpabuf *wps_nfc_dev_pw;
 
-
 	/**
-	 * p2p_go_max_inactivity - Timeout in seconds to detect STA's inactivity
+	 * ext_password_backend - External password backend or %NULL if none
+	 *
+	 * format: <backend name>[:<optional backend parameters>]
+	 */
+	char *ext_password_backend;
+
+	/*
+	 * p2p_go_max_inactivity - Timeout in seconds to detect STA inactivity
 	 *
 	 * This timeout value is used in P2P GO mode to clean up
 	 * inactive stations.
@@ -691,12 +740,25 @@ struct wpa_config {
 	 */
 	int p2p_go_max_inactivity;
 
+	struct hostapd_wmm_ac_params wmm_ac_params[4];
+
+	/**
+	 * auto_interworking - Whether to use network selection automatically
+	 *
+	 * 0 = do not automatically go through Interworking network selection
+	 *     (i.e., require explicit interworking_select command for this)
+	 * 1 = perform Interworking network selection if one or more
+	 *     credentials have been configured and scan did not find a
+	 *     matching network block
+	 */
+	int auto_interworking;
+
 	/**
 	 * p2p_go_ht40 - Default mode for HT40 enable when operating as GO.
 	 *
-	 * This will take effect for p2p_group_add and p2p_connect. Note that
-	 * regulatory constraints and driver capabilities are consulted anyway,
-	 * so setting it to 1 can't do real harm
+	 * This will take effect for p2p_group_add, p2p_connect, and p2p_invite.
+	 * Note that regulatory constraints and driver capabilities are
+	 * consulted anyway, so setting it to 1 can't do real harm.
 	 * By default: 0 (disabled)
 	 */
 	int p2p_go_ht40;
@@ -708,6 +770,46 @@ struct wpa_config {
 	 * currently connected.
 	 */
 	int p2p_multi_chan;
+
+	/**
+	 * p2p_disabled - Whether P2P operations are disabled for this interface
+	 */
+	int p2p_disabled;
+
+	/**
+	 * p2p_no_group_iface - Whether group interfaces can be used
+	 *
+	 * By default, wpa_supplicant will create a separate interface for P2P
+	 * group operations if the driver supports this. This functionality can
+	 * be disabled by setting this parameter to 1. In that case, the same
+	 * interface that was used for the P2P management operations is used
+	 * also for the group operation.
+	 */
+	int p2p_no_group_iface;
+
+	/**
+	 * okc - Whether to enable opportunistic key caching by default
+	 *
+	 * By default, OKC is disabled unless enabled by the per-network
+	 * proactive_key_caching=1 parameter. okc=1 can be used to change this
+	 * default behavior.
+	 */
+	int okc;
+
+	/**
+	 * pmf - Whether to enable/require PMF by default
+	 *
+	 * By default, PMF is disabled unless enabled by the per-network
+	 * ieee80211w=1 or ieee80211w=2 parameter. pmf=1/2 can be used to change
+	 * this default behavior.
+	 */
+	enum mfp_options pmf;
+
+	/*
+	 * concurrent_sched_scan - sched scan can run concurrently with normal
+	 * scan and no need to stop one to do the other.
+	 */
+	int concurrent_sched_scan;
 
 	/**
 	 * sched_scan_short_interval - Initial interval for sched scan in secs
@@ -726,33 +828,6 @@ struct wpa_config {
 	 * sched_scan_num_short_intervals - see sched_scan_short_interval
 	 */
 	int sched_scan_num_short_intervals;
-
-#ifdef ANDROID_P2P
-	/**
-	 * prioritize - Prioritize an Interface
-	 * Interface name of the interface that needs to be proritized; Useful
-	 * for resolving conflicts in connection. up to 16 octets encoded in
-	 * UTF-8
-	 */
-	char *prioritize;
-
-	/*
-	 * 0 - support STA + P2P CL/GO on the same channel (BRCM default)
-	 * 1 - support only one connection at a time (WL8)
-	 * 2 - support STA + P2P GO on same channel, but not P2P CL (WL6/7)
-	 */
-	int p2p_conc_mode;
-#endif
-	/*
-	 * p2p_disabled - Whether P2P operations are disabled for this interface
-	 */
-	int p2p_disabled;
-
-	/*
-	 * concurrent_sched_scan - sched scan can run concurrently with normal
-	 * scan and no need to stop one to do the other.
-	 */
-	int concurrent_sched_scan;
 };
 
 

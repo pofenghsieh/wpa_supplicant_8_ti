@@ -45,8 +45,7 @@ struct wps_data * wps_init(const struct wps_config *cfg)
 		os_memcpy(data->uuid_e, cfg->wps->uuid, WPS_UUID_LEN);
 	}
 	if (cfg->pin) {
-		data->dev_pw_id = data->wps->oob_dev_pw_id == 0 ?
-			cfg->dev_pw_id : data->wps->oob_dev_pw_id;
+		data->dev_pw_id = cfg->dev_pw_id;
 		data->dev_password = os_malloc(cfg->pin_len);
 		if (data->dev_password == NULL) {
 			os_free(data);
@@ -110,6 +109,7 @@ struct wps_data * wps_init(const struct wps_config *cfg)
 		data->new_ap_settings =
 			os_malloc(sizeof(*data->new_ap_settings));
 		if (data->new_ap_settings == NULL) {
+			os_free(data->dev_password);
 			os_free(data);
 			return NULL;
 		}
@@ -287,7 +287,8 @@ int wps_is_selected_pin_registrar(const struct wpabuf *msg)
  * @msg: WPS IE contents from Beacon or Probe Response frame
  * @addr: MAC address to search for
  * @ver1_compat: Whether to use version 1 compatibility mode
- * Returns: 1 if address is authorized, 0 if not
+ * Returns: 2 if the specified address is explicit authorized, 1 if address is
+ * authorized (broadcast), 0 if not
  */
 int wps_is_addr_authorized(const struct wpabuf *msg, const u8 *addr,
 			   int ver1_compat)
@@ -313,8 +314,9 @@ int wps_is_addr_authorized(const struct wpabuf *msg, const u8 *addr,
 
 	pos = attr.authorized_macs;
 	for (i = 0; i < attr.authorized_macs_len / ETH_ALEN; i++) {
-		if (os_memcmp(pos, addr, ETH_ALEN) == 0 ||
-		    os_memcmp(pos, bcast, ETH_ALEN) == 0)
+		if (os_memcmp(pos, addr, ETH_ALEN) == 0)
+			return 2;
+		if (os_memcmp(pos, bcast, ETH_ALEN) == 0)
 			return 1;
 		pos += ETH_ALEN;
 	}

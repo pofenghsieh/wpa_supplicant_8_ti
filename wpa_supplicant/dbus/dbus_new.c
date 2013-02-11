@@ -1104,7 +1104,6 @@ void wpas_dbus_signal_p2p_group_started(struct wpa_supplicant *wpa_s,
 	DBusMessage *msg;
 	DBusMessageIter iter, dict_iter;
 	struct wpas_dbus_priv *iface;
-	char net_obj_path[WPAS_DBUS_OBJECT_PATH_MAX];
 	char group_obj_path[WPAS_DBUS_OBJECT_PATH_MAX];
 
 	iface = wpa_s->parent->global->dbus;
@@ -1142,14 +1141,8 @@ void wpas_dbus_signal_p2p_group_started(struct wpa_supplicant *wpa_s,
 					 client ? "client" : "GO"))
 		goto nomem;
 
-	os_snprintf(net_obj_path, WPAS_DBUS_OBJECT_PATH_MAX,
-		    "%s/" WPAS_DBUS_NEW_NETWORKS_PART "/%u",
-		    wpa_s->parent->dbus_new_path, network_id);
-
 	if (!wpa_dbus_dict_append_object_path(&dict_iter, "group_object",
 					     group_obj_path) ||
-	   !wpa_dbus_dict_append_object_path(&dict_iter, "network_object",
-					     net_obj_path) ||
 	   !wpa_dbus_dict_close_write(&iter, &dict_iter))
 		goto nomem;
 
@@ -1957,6 +1950,10 @@ static const struct wpa_dbus_property_desc wpas_dbus_global_properties[] = {
 	  wpas_dbus_getter_eap_methods,
 	  NULL
 	},
+	{ "Capabilities", WPAS_DBUS_NEW_INTERFACE, "as",
+	  wpas_dbus_getter_global_capabilities,
+	  NULL
+	},
 	{ NULL, NULL, NULL, NULL, NULL }
 };
 
@@ -2239,6 +2236,10 @@ static const struct wpa_dbus_property_desc wpas_dbus_bss_properties[] = {
 	  wpas_dbus_getter_bss_rsn,
 	  NULL
 	},
+	{ "WPS", WPAS_DBUS_NEW_IFACE_BSS, "a{sv}",
+	  wpas_dbus_getter_bss_wps,
+	  NULL
+	},
 	{ "IEs", WPAS_DBUS_NEW_IFACE_BSS, "ay",
 	  wpas_dbus_getter_bss_ies,
 	  NULL
@@ -2388,6 +2389,12 @@ static const struct wpa_dbus_method_desc wpas_dbus_interface_methods[] = {
 	  {
 		  { "args", "a{sv}", ARG_IN },
 		  { "path", "o", ARG_OUT },
+		  END_ARGS
+	  }
+	},
+	{ "Reassociate", WPAS_DBUS_NEW_IFACE_INTERFACE,
+	  (WPADBusMethodHandler) &wpas_dbus_handler_reassociate,
+	  {
 		  END_ARGS
 	  }
 	},

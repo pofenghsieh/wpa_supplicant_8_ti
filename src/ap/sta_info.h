@@ -28,6 +28,7 @@
 #define WLAN_STA_ASSOC_REQ_OK BIT(15)
 #define WLAN_STA_WPS2 BIT(16)
 #define WLAN_STA_GAS BIT(17)
+#define WLAN_STA_VHT BIT(18)
 #define WLAN_STA_PENDING_DISASSOC_CB BIT(29)
 #define WLAN_STA_PENDING_DEAUTH_CB BIT(30)
 #define WLAN_STA_NONERP BIT(31)
@@ -95,9 +96,14 @@ struct sta_info {
 	struct hostapd_ssid *ssid_probe; /* SSID selection based on ProbeReq */
 
 	int vlan_id;
-	u8 *psk; /* PSK from RADIUS authentication server */
+	 /* PSKs from RADIUS authentication server */
+	struct hostapd_sta_wpa_psk_short *psk;
+
+	char *identity; /* User-Name from RADIUS */
+	char *radius_cui; /* Chargeable-User-Identity from RADIUS */
 
 	struct ieee80211_ht_capabilities *ht_capabilities;
+	struct ieee80211_vht_capabilities *vht_capabilities;
 
 #ifdef CONFIG_IEEE80211W
 	int sa_query_count; /* number of pending SA Query requests;
@@ -117,6 +123,14 @@ struct sta_info {
 
 	struct wpabuf *wps_ie; /* WPS IE from (Re)Association Request */
 	struct wpabuf *p2p_ie; /* P2P IE from (Re)Association Request */
+	struct wpabuf *hs20_ie; /* HS 2.0 IE from (Re)Association Request */
+
+	struct os_time connected_time;
+
+#ifdef CONFIG_SAE
+	enum { SAE_INIT, SAE_COMMIT, SAE_CONFIRM } sae_state;
+	u16 sae_send_confirm;
+#endif /* CONFIG_SAE */
 };
 
 

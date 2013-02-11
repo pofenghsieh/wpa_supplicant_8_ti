@@ -162,7 +162,6 @@ static int wpa_supplicant_conf_ap(struct wpa_supplicant *wpa_s,
 		return -1;
 	}
 	os_memcpy(bss->ssid.ssid, ssid->ssid, ssid->ssid_len);
-	bss->ssid.ssid[ssid->ssid_len] = '\0';
 	bss->ssid.ssid_len = ssid->ssid_len;
 	bss->ssid.ssid_set = 1;
 
@@ -175,15 +174,15 @@ static int wpa_supplicant_conf_ap(struct wpa_supplicant *wpa_s,
 		bss->wpa = ssid->proto;
 	bss->wpa_key_mgmt = ssid->key_mgmt;
 	bss->wpa_pairwise = ssid->pairwise_cipher;
-	if (ssid->passphrase) {
-		bss->ssid.wpa_passphrase = os_strdup(ssid->passphrase);
-	} else if (ssid->psk_set) {
+	if (ssid->psk_set) {
 		os_free(bss->ssid.wpa_psk);
 		bss->ssid.wpa_psk = os_zalloc(sizeof(struct hostapd_wpa_psk));
 		if (bss->ssid.wpa_psk == NULL)
 			return -1;
 		os_memcpy(bss->ssid.wpa_psk->psk, ssid->psk, PMK_LEN);
 		bss->ssid.wpa_psk->group = 1;
+	} else if (ssid->passphrase) {
+		bss->ssid.wpa_passphrase = os_strdup(ssid->passphrase);
 	} else if (ssid->wep_key_len[0] || ssid->wep_key_len[1] ||
 		   ssid->wep_key_len[2] || ssid->wep_key_len[3]) {
 		struct hostapd_wep_keys *wep = &bss->ssid.wep;
@@ -219,6 +218,9 @@ static int wpa_supplicant_conf_ap(struct wpa_supplicant *wpa_s,
 	}
 	if (pairwise & WPA_CIPHER_TKIP)
 		bss->wpa_group = WPA_CIPHER_TKIP;
+	else if ((pairwise & (WPA_CIPHER_CCMP | WPA_CIPHER_GCMP)) ==
+		 WPA_CIPHER_GCMP)
+		bss->wpa_group = WPA_CIPHER_GCMP;
 	else
 		bss->wpa_group = WPA_CIPHER_CCMP;
 
@@ -462,6 +464,8 @@ int wpa_supplicant_create_ap(struct wpa_supplicant *wpa_s,
 
 	if (ssid->pairwise_cipher & WPA_CIPHER_CCMP)
 		wpa_s->pairwise_cipher = WPA_CIPHER_CCMP;
+	else if (ssid->pairwise_cipher & WPA_CIPHER_GCMP)
+		wpa_s->pairwise_cipher = WPA_CIPHER_GCMP;
 	else if (ssid->pairwise_cipher & WPA_CIPHER_TKIP)
 		wpa_s->pairwise_cipher = WPA_CIPHER_TKIP;
 	else if (ssid->pairwise_cipher & WPA_CIPHER_NONE)
@@ -482,6 +486,8 @@ int wpa_supplicant_create_ap(struct wpa_supplicant *wpa_s,
 
 	if (wpa_s->parent->set_ap_uapsd)
 		params.uapsd = wpa_s->parent->ap_uapsd;
+	else
+		params.uapsd = -1;
 
 	if (wpa_drv_associate(wpa_s, &params) < 0) {
 		wpa_msg(wpa_s, MSG_INFO, "Failed to start AP functionality");
@@ -505,7 +511,7 @@ int wpa_supplicant_create_ap(struct wpa_supplicant *wpa_s,
 		  wpa_s->conf->wmm_ac_params,
 		  sizeof(wpa_s->conf->wmm_ac_params));
 
-	if (params.uapsd) {
+	if (params.uapsd > 0) {
 		conf->bss->wmm_enabled = 1;
 		conf->bss->wmm_uapsd = 1;
 	}
@@ -525,7 +531,7 @@ int wpa_supplicant_create_ap(struct wpa_supplicant *wpa_s,
 #endif /* CONFIG_P2P */
 
 	hapd_iface->num_bss = conf->num_bss;
-	hapd_iface->bss = os_zalloc(conf->num_bss *
+	hapd_iface->bss = os_calloc(conf->num_bss,
 				    sizeof(struct hostapd_data *));
 	if (hapd_iface->bss == NULL) {
 		wpa_supplicant_ap_deinit(wpa_s);
@@ -718,7 +724,8 @@ int wpa_supplicant_ap_wps_cancel(struct wpa_supplicant *wpa_s)
 
 
 int wpa_supplicant_ap_wps_pin(struct wpa_supplicant *wpa_s, const u8 *bssid,
-			      const char *pin, char *buf, size_t buflen)
+			      const char *pin, char *buf, size_t buflen,
+			      int timeout)
 {
 	int ret, ret_len = 0;
 
@@ -733,7 +740,7 @@ int wpa_supplicant_ap_wps_pin(struct wpa_supplicant *wpa_s, const u8 *bssid,
 		ret_len = os_snprintf(buf, buflen, "%s", pin);
 
 	ret = hostapd_wps_add_pin(wpa_s->ap_iface->bss[0], bssid, "any", pin,
-				  0);
+				  timeout);
 	if (ret)
 		return -1;
 	return ret_len;
